@@ -177,6 +177,7 @@ class FactorGraph:
 
 
         with self.video.get_lock():
+            self.video.tstamp[ix] = self.video.tstamp[ix+1]
             self.video.images[ix] = self.video.images[ix+1]
             self.video.poses[ix] = self.video.poses[ix+1]
             self.video.disps[ix] = self.video.disps[ix+1]
