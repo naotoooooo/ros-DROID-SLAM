@@ -57,6 +57,10 @@ class GraphAgg(nn.Module):
             nn.Conv2d(128, 8*8*9, 1, padding=0))
 
     def forward(self, net, ii):
+
+        net = net.float()#追加
+        ii = ii.float()  #追加
+
         batch, num, ch, ht, wd = net.shape
         net = net.view(batch*num, ch, ht, wd)
 
@@ -108,8 +112,13 @@ class UpdateModule(nn.Module):
         self.gru = ConvGRU(128, 128+128+64)
         self.agg = GraphAgg()
 
+    #ConvGRU
     def forward(self, net, inp, corr, flow=None, ii=None, jj=None):
         """ RaftSLAM update operator """
+
+        net = net.float()#追加
+        inp = inp.float()#追加
+        corr = corr.float()#追加
 
         batch, num, ch, ht, wd = net.shape
 
@@ -124,7 +133,7 @@ class UpdateModule(nn.Module):
 
         corr = self.corr_encoder(corr)
         flow = self.flow_encoder(flow)
-        net = self.gru(net, inp, corr, flow)
+        net = self.gru(net, inp, corr, flow) #ConvGRU
 
         ### update variables ###
         delta = self.delta(net).view(*output_dim)
@@ -136,7 +145,7 @@ class UpdateModule(nn.Module):
         net = net.view(*output_dim)
 
         if ii is not None:
-            eta, upmask = self.agg(net, ii.to(net.device))
+            eta, upmask = self.agg(net, ii.to(net.device)) # 追加でダンピングパラメータ（eta）とアップサンプリングマスク（upmask）を計算 ,バンドル調整やリファインメント処理に使用
             return net, delta, weight, eta, upmask
 
         else:
@@ -146,7 +155,9 @@ class UpdateModule(nn.Module):
 class DroidNet(nn.Module):
     def __init__(self):
         super(DroidNet, self).__init__()
+        #特徴ネットワーク
         self.fnet = BasicEncoder(output_dim=128, norm_fn='instance')
+        #コンテキストネットワーク
         self.cnet = BasicEncoder(output_dim=256, norm_fn='none')
         self.update = UpdateModule()
 
@@ -171,6 +182,14 @@ class DroidNet(nn.Module):
 
     def forward(self, Gs, images, disps, intrinsics, graph=None, num_steps=12, fixedp=2):
         """ Estimates SE3 or Sim3 between pair of frames """
+
+        Gs = Gs.float()#追加
+        images = images.float()#追加
+        disps = disps.float()#追加
+        intrinsics = intrinsics.float()#追加
+        #graph = graph.float()#追加
+        num_steps = num_steps.float()#追加
+        fixdp = fixdp.float() #追加
 
         u = keyframe_indicies(graph)
         ii, jj, kk = graph_to_edge_list(graph)

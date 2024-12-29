@@ -105,12 +105,12 @@ def projective_transform(poses, depths, intrinsics, ii, jj, jacobian=False, retu
     Gij.data[:,ii==jj] = torch.as_tensor([-0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], device="cuda")
     X1, Ja = actp(Gij, X0, jacobian=jacobian)
     
-    # project (pinhole)
+    # project (pinhole) make_pij
     x1, Jp = proj(X1, intrinsics[:,jj], jacobian=jacobian, return_depth=return_depth)
 
     # exclude points too close to camera
     valid = ((X1[...,2] > MIN_DEPTH) & (X0[...,2] > MIN_DEPTH)).float()
-    valid = valid.unsqueeze(-1)
+    valid = valid.unsqueeze(-1) #有効点をマスクする
 
     if jacobian:
         # Ji transforms according to dual adjoint

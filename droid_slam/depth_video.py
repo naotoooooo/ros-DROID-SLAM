@@ -8,6 +8,7 @@ from collections import OrderedDict
 
 from droid_net import cvx_upsample
 import geom.projective_ops as pops
+import torch.nn.functional as F
 
 class DepthVideo:
     def __init__(self, image_size=[480, 640], buffer=1024, stereo=False, device="cuda:0"):
@@ -98,6 +99,7 @@ class DepthVideo:
 
         return item
 
+    # DepthVideo のバッファに新しいフレームデータを追加する
     def append(self, *item):
         with self.get_lock():
             self.__item_setter(self.counter.value, item)
@@ -139,16 +141,20 @@ class DepthVideo:
     def reproject(self, ii, jj):
         """ project points from ii -> jj """
         ii, jj = DepthVideo.format_indicies(ii, jj)
+        # カメラの姿勢（ポーズ）をリスト形式で SE3 オブジェクトに変換
         Gs = lietorch.SE3(self.poses[None])
 
+        # coords:投影先フレームでの座標pij（画素位置)    valid_mask:有効な投影（カメラの前方で深度が適切）の点を示すバイナリマスク
         coords, valid_mask = \
             pops.projective_transform(Gs, self.disps[None], self.intrinsics[None], ii, jj)
 
         return coords, valid_mask
 
+    #フレーム間の距離を計算
     def distance(self, ii=None, jj=None, beta=0.3, bidirectional=True):
         """ frame distance metric """
 
+        # ii, jj が指定されていない場合、全てのフレームのペアに対して距離を計算
         return_matrix = False
         if ii is None:
             return_matrix = True
@@ -161,6 +167,7 @@ class DepthVideo:
 
             poses = self.poses[:self.counter.value].clone()
 
+            #ピクセルの変位から距離計算
             d1 = droid_backends.frame_distance(
                 poses, self.disps, self.intrinsics[0], ii, jj, beta)
 
@@ -178,7 +185,7 @@ class DepthVideo:
 
         return d
 
-    def ba(self, target, weight, eta, ii, jj, t0=1, t1=None, itrs=2, lm=1e-4, ep=0.1, motion_only=False):
+    def ba(self, target, weight, eta, ii, jj, t0=1, t1=None, itrs=2, lm=1e-4, ep=0.1, motion_only=False): # target:目標値 weight:重み eta:学習率 ii,jj:フレームのインデックス t0,t1:最適化ウィンドウ itrs:バンドル調整の反復回数 lm:Levenberg-Marquardt法のパラメータ ep:収束基準の閾値 motion_only:モーションのみ
         """ dense bundle adjustment (DBA) """
 
         with self.get_lock():

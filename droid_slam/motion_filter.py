@@ -29,18 +29,19 @@ class MotionFilter:
         self.MEAN = torch.as_tensor([0.485, 0.456, 0.406], device=self.device)[:, None, None]
         self.STDV = torch.as_tensor([0.229, 0.224, 0.225], device=self.device)[:, None, None]
         
-    @torch.cuda.amp.autocast(enabled=True)
+    # @torch.cuda.amp.autocast(enabled=True)
     def __context_encoder(self, image):
         """ context features """
         net, inp = self.cnet(image).split([128,128], dim=2)
         return net.tanh().squeeze(0), inp.relu().squeeze(0)
 
-    @torch.cuda.amp.autocast(enabled=True)
+    # @torch.cuda.amp.autocast(enabled=True)
     def __feature_encoder(self, image):
         """ features for correlation volume """
         return self.fnet(image).squeeze(0)
 
-    @torch.cuda.amp.autocast(enabled=True)
+    # @torch.cuda.amp.autocast(enabled=True)
+    # 画像間のフローを計算して、動画に新しいフレームを加えるか選別
     @torch.no_grad()
     def track(self, tstamp, image, depth=None, intrinsics=None):
         """ main update operation - run on every frame in video """
@@ -53,7 +54,7 @@ class MotionFilter:
         inputs = image[None, :, [2,1,0]].to(self.device) / 255.0
         inputs = inputs.sub_(self.MEAN).div_(self.STDV)
 
-        # extract features
+        # extract features 特徴量マップを計算
         gmap = self.__feature_encoder(inputs)
 
         ### always add first frame to the depth video ###
@@ -65,22 +66,24 @@ class MotionFilter:
         ### only add new frame if there is enough motion ###
         else:                
             # index correlation volume
-            coords0 = pops.coords_grid(ht, wd, device=self.device)[None,None]
-            corr = CorrBlock(self.fmap[None,[0]], gmap[None,[0]])(coords0)
+            coords0 = pops.coords_grid(ht, wd, device=self.device)[None,None] # 特徴量マップの座標グリッドを生成 (x,y)
+            #特徴マップ間の相関を計算し、それを複数レベルのピラミッド構造で管理(lookupまで行う)
+            corr = CorrBlock(self.fmap[None,[0]], gmap[None,[0]])(coords0) # self.fmap（前回のフレームの特徴量）と gmap（現在のフレームの特徴量）の間の相関計算
 
             # approximate flow magnitude using 1 update iteration
-            _, delta, weight = self.update(self.net[None], self.inp[None], corr)
+            _, delta, weight = self.update(self.net[None], self.inp[None], corr) # ConcGRU   修正量（delta）,信頼度（weight）を計算
 
             # check motion magnitue / add new frame to video
-            if delta.norm(dim=-1).mean().item() > self.thresh:
+            if delta.norm(dim=-1).mean().item() > self.thresh: # 動き（フロー変化量）の大きさが閾値を超えるか判定
                 self.count = 0
-                net, inp = self.__context_encoder(inputs[:,[0]])
-                self.net, self.inp, self.fmap = net, inp, gmap
-                self.video.append(tstamp, image[0], None, None, depth, intrinsics / 8.0, gmap, net[0], inp[0])
+                net, inp = self.__context_encoder(inputs[:,[0]]) # コンテキスト  net と inp はそれぞれコンテキスト特徴量と入力特徴量
+                self.net, self.inp, self.fmap = net, inp, gmap # 現在のフレームの特徴を保存
+                self.video.append(tstamp, image[0], None, None, depth, intrinsics / 8.0, gmap, net[0], inp[0]) # 現在のフレームを動画データに追加
+
 
             else:
                 self.count += 1
-
+                           
 
 
 

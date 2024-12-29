@@ -19,7 +19,7 @@ class CorrSampler(torch.autograd.Function):
         grad_volume, = droid_backends.corr_index_backward(volume, coords, grad_output, ctx.radius)
         return grad_volume, None, None
 
-
+# 特徴マップ間の相関を計算し、それを複数レベルのピラミッド構造で管理
 class CorrBlock:
     def __init__(self, fmap1, fmap2, num_levels=4, radius=3):
         self.num_levels = num_levels
@@ -29,9 +29,11 @@ class CorrBlock:
         # all pairs correlation
         corr = CorrBlock.corr(fmap1, fmap2)
 
+        #相関マップを 4 次元テンソルに再構成し、後続のプーリング操作に備えます
         batch, num, h1, w1, h2, w2 = corr.shape
         corr = corr.reshape(batch*num*h1*w1, 1, h2, w2)
         
+        #ピラミッドの構築
         for i in range(self.num_levels):
             self.corr_pyramid.append(
                 corr.view(batch*num, h1, w1, h2//2**i, w2//2**i))
@@ -44,7 +46,7 @@ class CorrBlock:
         coords = coords.contiguous().view(batch*num, 2, ht, wd)
         
         for i in range(self.num_levels):
-            corr = CorrSampler.apply(self.corr_pyramid[i], coords/2**i, self.radius)
+            corr = CorrSampler.apply(self.corr_pyramid[i], coords/2**i, self.radius) # 指定された近傍（半径）内で、相関値を効率的にサンプリング Lookup
             out_pyramid.append(corr.view(batch, num, -1, ht, wd))
 
         return torch.cat(out_pyramid, dim=2)

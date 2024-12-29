@@ -63,13 +63,14 @@ class Droid:
 
         with torch.no_grad():
             # check there is enough motion
+            # 画像間の動きの変化がしきい値を超えた場合、フレームをvideoに追加
             self.filterx.track(tstamp, image, depth, intrinsics)
 
             # local bundle adjustment
             self.frontend()
 
             # global bundle adjustment
-            # self.backend()
+            #self.backend()
 
     def terminate(self, stream=None):
         """ terminate the visualization process, return poses [t, q] """
