@@ -10,6 +10,8 @@ import os
 import re
 #python高速化のため
 from numba import jit
+#要素のカウント
+from collections import Counter
 
 import time
 
@@ -63,6 +65,11 @@ def droid_visualization(video, device="cuda:0"):
     droid_visualization.video = video
     droid_visualization.cameras = {}
     droid_visualization.points = {}
+    ##追記##
+    droid_visualization.masks = {}
+    droid_visualization.next_colors = {}
+    droid_visualization.count = 0
+    ##########
     droid_visualization.warmup = 8
     droid_visualization.scale = 1.0
     droid_visualization.ix = 0
@@ -95,9 +102,16 @@ def droid_visualization(video, device="cuda:0"):
         cv2.destroyAllWindows()
         return
     
-    @jit
+    @jit(nopython=True)
     def calc_distance(point, pre_point):
-        return np.sqrt(np.dot((point - pre_point).T, (point - pre_point)))
+        distances = np.empty(len(pre_point))
+        # for i in range(len(pre_point)):
+            # diff = point - pre_point[i]
+            # distance = np.sqrt(np.dot(diff.T, diff))
+            # distances[i] = distance
+        distances = [np.sqrt(np.dot(point - pre_point[i].T, point - pre_point[i])) for i in range(len(pre_point))]
+        return distances
+
               
     def animation_callback(vis):
         cam = vis.get_view_control().convert_to_pinhole_camera_parameters()
@@ -149,7 +163,7 @@ def droid_visualization(video, device="cuda:0"):
             
             semantic_images = torch.zeros((1024,3,328,584), dtype=torch.uint8)  # 4次元テンソル
             semantic_images = semantic_images.to(device="cuda")
-            print(f"dirty_index: {dirty_index}")
+            #print(f"dirty_index: {dirty_index}")
             for idx in dirty_index:
             # ここで現在のフレームに対応する画像を取得する
                 tstamp_index = int(video.tstamp[idx])  # 必要に応じて整数にキャスト
@@ -193,12 +207,674 @@ def droid_visualization(video, device="cuda:0"):
                 ## add camera actor ###
                 cam_actor = create_camera_actor(True)
                 cam_actor.transform(pose)
-                vis.add_geometry(cam_actor)
+                #vis.add_geometry(cam_actor)
                 droid_visualization.cameras[ix] = cam_actor
 
                 mask = masks[i].reshape(-1)
+                #print(f"images[i].shape: {images[i].shape}")    
                 pts = points[i].reshape(-1, 3)[mask].cpu().numpy()
                 clr = images[i].reshape(-1, 3)[mask].cpu().numpy()
+                # clr[:] = 1.0
+                #print(f"pts: {pts}")
+                
+                
+                
+                #########################################
+                ## 一個後のフレームの点群と比較 ###
+                # if i == 0:
+                #     next_mask = masks[i+1].reshape(-1)
+                #     next_pts = points[i+1].reshape(-1, 3)[next_mask].cpu().numpy()
+                #     next_clr = images[i+1].reshape(-1, 3)[next_mask].cpu().numpy()
+                    
+
+                #     # 現在のフレームの点ごとにチェック
+                #     for j, point in enumerate(pts):
+                #         x, y, z = point
+                #         next_x_range = (next_pts[:, 0] >= x - 0.1) & (next_pts[:, 0] <= x + 0.1)
+                #         next_y_range = (next_pts[:, 1] >= y - 0.1) & (next_pts[:, 1] <= y + 0.1)
+
+                #         # 条件に一致する点があるか確認
+                #         next_in_range = next_x_range & next_y_range
+                #         if np.any(next_in_range):   # 範囲内の点が存在
+                #             next_close_pts = next_pts[next_in_range]
+                #             next_close_clr = next_clr[next_in_range]  # 後フレームの色を取得
+
+                #             # # 三次元距離を計算
+                #             next_distances = calc_distance(point,next_close_pts)
+                #             close_clr_list = []
+                #             close_clr_list = [next_close_clr[k] for k, dist in enumerate(next_distances) if dist < 0.02]
+                #             # 最も頻出する色を決定
+                #             if len(close_clr_list) > 0:
+                #                 # most_common_color = Counter(close_clr_list).most_common(1)[0][0]
+                #                 close_clr_list.append(clr[j])
+                #                 most_common_color = Counter(map(tuple, close_clr_list)).most_common(1)[0][0]
+                #                 clr[j] = most_common_color 
+                
+                if i ==0 and len(dirty_index) > 10:
+                    next_mask = masks[i+1].reshape(-1)
+                    next_pts = points[i+1].reshape(-1, 3)[next_mask].cpu().numpy()
+                    next_clr = images[i+1].reshape(-1, 3)[next_mask].cpu().numpy()
+                    next1_mask = masks[i+2].reshape(-1)
+                    next1_pts = points[i+2].reshape(-1, 3)[next1_mask].cpu().numpy()
+                    next1_clr = images[i+2].reshape(-1, 3)[next1_mask].cpu().numpy()
+                    next2_mask = masks[i+3].reshape(-1)
+                    next2_pts = points[i+3].reshape(-1, 3)[next2_mask].cpu().numpy()
+                    next2_clr = images[i+3].reshape(-1, 3)[next2_mask].cpu().numpy()
+                   
+                    # 現在のフレームの点ごとにチェック
+                    for j, point in enumerate(pts):
+                        x, y, z = point
+                        next_x_range = (next_pts[:, 0] >= x - 0.1) & (next_pts[:, 0] <= x + 0.1)
+                        next_y_range = (next_pts[:, 1] >= y - 0.1) & (next_pts[:, 1] <= y + 0.1)
+                        next1_x_range = (next1_pts[:, 0] >= x - 0.1) & (next1_pts[:, 0] <= x + 0.1)
+                        next1_y_range = (next1_pts[:, 1] >= y - 0.1) & (next1_pts[:, 1] <= y + 0.1)
+                        next2_x_range = (next2_pts[:, 0] >= x - 0.1) & (next2_pts[:, 0] <= x + 0.1)
+                        next2_y_range = (next2_pts[:, 1] >= y - 0.1) & (next2_pts[:, 1] <= y + 0.1)
+
+                        # 条件に一致する点があるか確認
+                        next_in_range = next_x_range & next_y_range
+                        next1_in_range = next1_x_range & next1_y_range
+                        next2_in_range = next2_x_range & next2_y_range
+                        # if np.any(next_in_range):   # 範囲内の点が存在
+                        next_close_pts = next_pts[next_in_range]
+                        next_close_clr = next_clr[next_in_range]  # 後フレームの色を取得
+                        next1_close_pts = next1_pts[next1_in_range]
+                        next1_close_clr = next1_clr[next1_in_range]  # 後フレームの色を取得
+                        next2_close_pts = next2_pts[next2_in_range]
+                        next2_close_clr = next2_clr[next2_in_range]  # 後フレームの色を取得
+
+                        # # 三次元距離を計算
+                        next_distances = calc_distance(point,next_close_pts)
+                        next1_distances = calc_distance(point,next1_close_pts)
+                        next2_distances = calc_distance(point,next2_close_pts)
+                        close_clr_list = []
+                        close_clr_list.extend([tuple(next_close_clr[k]) for k, dist in enumerate(next_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(next1_close_clr[k]) for k, dist in enumerate(next1_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(next2_close_clr[k]) for k, dist in enumerate(next2_distances) if dist < 0.02])
+                        # 最も頻出する色を決定
+                        if len(close_clr_list) > 0:
+                            close_clr_list.append(tuple(clr[j]))
+                            most_common_color = Counter(close_clr_list).most_common(1)[0][0]
+                            clr[j] = most_common_color
+                            
+                if i ==1 and len(dirty_index) > 10:
+                    pre_mask = masks[i-1].reshape(-1)
+                    pre_pts = points[i-1].reshape(-1, 3)[next_mask].cpu().numpy()
+                    pre_clr = images[i-1].reshape(-1, 3)[next_mask].cpu().numpy()
+                    next_mask = masks[i+1].reshape(-1)
+                    next_pts = points[i+1].reshape(-1, 3)[next_mask].cpu().numpy()
+                    next_clr = images[i+1].reshape(-1, 3)[next_mask].cpu().numpy()
+                    next1_mask = masks[i+2].reshape(-1)
+                    next1_pts = points[i+2].reshape(-1, 3)[next1_mask].cpu().numpy()
+                    next1_clr = images[i+2].reshape(-1, 3)[next1_mask].cpu().numpy()
+                    next2_mask = masks[i+3].reshape(-1)
+                    next2_pts = points[i+3].reshape(-1, 3)[next2_mask].cpu().numpy()
+                    next2_clr = images[i+3].reshape(-1, 3)[next2_mask].cpu().numpy()
+                   
+                    # 現在のフレームの点ごとにチェック
+                    for j, point in enumerate(pts):
+                        x, y, z = point
+                        pre_x_range = (pre_pts[:, 0] >= x - 0.1) & (pre_pts[:, 0] <= x + 0.1)
+                        pre_y_range = (pre_pts[:, 1] >= y - 0.1) & (pre_pts[:, 1] <= y + 0.1)
+                        next_x_range = (next_pts[:, 0] >= x - 0.1) & (next_pts[:, 0] <= x + 0.1)
+                        next_y_range = (next_pts[:, 1] >= y - 0.1) & (next_pts[:, 1] <= y + 0.1)
+                        next1_x_range = (next1_pts[:, 0] >= x - 0.1) & (next1_pts[:, 0] <= x + 0.1)
+                        next1_y_range = (next1_pts[:, 1] >= y - 0.1) & (next1_pts[:, 1] <= y + 0.1)
+                        next2_x_range = (next2_pts[:, 0] >= x - 0.1) & (next2_pts[:, 0] <= x + 0.1)
+                        next2_y_range = (next2_pts[:, 1] >= y - 0.1) & (next2_pts[:, 1] <= y + 0.1)
+
+                        # 条件に一致する点があるか確認
+                        pre_in_range = pre_x_range & pre_y_range
+                        next_in_range = next_x_range & next_y_range
+                        next1_in_range = next1_x_range & next1_y_range
+                        next2_in_range = next2_x_range & next2_y_range
+                        # if np.any(next_in_range):   # 範囲内の点が存在
+                        pre_close_pts = pre_pts[pre_in_range]
+                        pre_close_clr = pre_clr[pre_in_range]  # 前フレームの色を取得
+                        next_close_pts = next_pts[next_in_range]
+                        next_close_clr = next_clr[next_in_range]  # 後フレームの色を取得
+                        next1_close_pts = next1_pts[next1_in_range]
+                        next1_close_clr = next1_clr[next1_in_range]  # 後フレームの色を取得
+                        next2_close_pts = next2_pts[next2_in_range]
+                        next2_close_clr = next2_clr[next2_in_range]  # 後フレームの色を取得
+
+                        # # 三次元距離を計算
+                        pre_distances = calc_distance(point,pre_close_pts)
+                        next_distances = calc_distance(point,next_close_pts)
+                        next1_distances = calc_distance(point,next1_close_pts)
+                        next2_distances = calc_distance(point,next2_close_pts)
+                        close_clr_list = []
+                        close_clr_list.extend([tuple(pre_close_clr[k]) for k, dist in enumerate(pre_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(next_close_clr[k]) for k, dist in enumerate(next_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(next1_close_clr[k]) for k, dist in enumerate(next1_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(next2_close_clr[k]) for k, dist in enumerate(next2_distances) if dist < 0.02])
+                        # 最も頻出する色を決定
+                        if len(close_clr_list) > 0:
+                            close_clr_list.append(tuple(clr[j]))
+                            most_common_color = Counter(close_clr_list).most_common(1)[0][0]
+                            clr[j] = most_common_color 
+                            
+                            
+                            
+                if i ==2 and len(dirty_index) > 10:
+                    pre1_mask = masks[i-2].reshape(-1)
+                    pre1_pts = points[i-2].reshape(-1, 3)[next_mask].cpu().numpy()
+                    pre1_clr = images[i-2].reshape(-1, 3)[next_mask].cpu().numpy()
+                    pre_mask = masks[i-1].reshape(-1)
+                    pre_pts = points[i-1].reshape(-1, 3)[next_mask].cpu().numpy()
+                    pre_clr = images[i-1].reshape(-1, 3)[next_mask].cpu().numpy()
+                    next_mask = masks[i+1].reshape(-1)
+                    next_pts = points[i+1].reshape(-1, 3)[next_mask].cpu().numpy()
+                    next_clr = images[i+1].reshape(-1, 3)[next_mask].cpu().numpy()
+                    next1_mask = masks[i+2].reshape(-1)
+                    next1_pts = points[i+2].reshape(-1, 3)[next1_mask].cpu().numpy()
+                    next1_clr = images[i+2].reshape(-1, 3)[next1_mask].cpu().numpy()
+                    next2_mask = masks[i+3].reshape(-1)
+                    next2_pts = points[i+3].reshape(-1, 3)[next2_mask].cpu().numpy()
+                    next2_clr = images[i+3].reshape(-1, 3)[next2_mask].cpu().numpy()
+                   
+                    # 現在のフレームの点ごとにチェック
+                    for j, point in enumerate(pts):
+                        x, y, z = point
+                        pre1_x_range = (pre1_pts[:, 0] >= x - 0.1) & (pre1_pts[:, 0] <= x + 0.1)
+                        pre1_y_range = (pre1_pts[:, 1] >= y - 0.1) & (pre1_pts[:, 1] <= y + 0.1)
+                        pre_x_range = (pre_pts[:, 0] >= x - 0.1) & (pre_pts[:, 0] <= x + 0.1)
+                        pre_y_range = (pre_pts[:, 1] >= y - 0.1) & (pre_pts[:, 1] <= y + 0.1)
+                        next_x_range = (next_pts[:, 0] >= x - 0.1) & (next_pts[:, 0] <= x + 0.1)
+                        next_y_range = (next_pts[:, 1] >= y - 0.1) & (next_pts[:, 1] <= y + 0.1)
+                        next1_x_range = (next1_pts[:, 0] >= x - 0.1) & (next1_pts[:, 0] <= x + 0.1)
+                        next1_y_range = (next1_pts[:, 1] >= y - 0.1) & (next1_pts[:, 1] <= y + 0.1)
+                        next2_x_range = (next2_pts[:, 0] >= x - 0.1) & (next2_pts[:, 0] <= x + 0.1)
+                        next2_y_range = (next2_pts[:, 1] >= y - 0.1) & (next2_pts[:, 1] <= y + 0.1)
+
+                        # 条件に一致する点があるか確認
+                        pre1_in_range = pre1_x_range & pre1_y_range
+                        pre_in_range = pre_x_range & pre_y_range
+                        next_in_range = next_x_range & next_y_range
+                        next1_in_range = next1_x_range & next1_y_range
+                        next2_in_range = next2_x_range & next2_y_range
+                        # if np.any(next_in_range):   # 範囲内の点が存在
+                        pre1_close_pts = pre1_pts[pre1_in_range]
+                        pre1_close_clr = pre1_clr[pre1_in_range]  # 前フレームの色を取得
+                        pre_close_pts = pre_pts[pre_in_range]
+                        pre_close_clr = pre_clr[pre_in_range]  # 前フレームの色を取得
+                        next_close_pts = next_pts[next_in_range]
+                        next_close_clr = next_clr[next_in_range]  # 後フレームの色を取得
+                        next1_close_pts = next1_pts[next1_in_range]
+                        next1_close_clr = next1_clr[next1_in_range]  # 後フレームの色を取得
+                        next2_close_pts = next2_pts[next2_in_range]
+                        next2_close_clr = next2_clr[next2_in_range]  # 後フレームの色を取得
+
+                        # # 三次元距離を計算
+                        pre1_distances = calc_distance(point,pre1_close_pts)
+                        pre_distances = calc_distance(point,pre_close_pts)
+                        next_distances = calc_distance(point,next_close_pts)
+                        next1_distances = calc_distance(point,next1_close_pts)
+                        next2_distances = calc_distance(point,next2_close_pts)
+                        close_clr_list = []
+                        close_clr_list.extend([tuple(pre1_close_clr[k]) for k, dist in enumerate(pre1_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(pre_close_clr[k]) for k, dist in enumerate(pre_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(next_close_clr[k]) for k, dist in enumerate(next_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(next1_close_clr[k]) for k, dist in enumerate(next1_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(next2_close_clr[k]) for k, dist in enumerate(next2_distances) if dist < 0.02])
+                        # 最も頻出する色を決定
+                        if len(close_clr_list) > 0:
+                            close_clr_list.append(tuple(clr[j]))
+                            most_common_color = Counter(close_clr_list).most_common(1)[0][0]
+                            clr[j] = most_common_color 
+                
+                #if i > 0 and len(dirty_index)-1 > i:  # 最初のフレームは比較対象がない
+                if i > 2 and len(dirty_index) > 10 and len(dirty_index)-3 > i:  # 最初のフレームは比較対象がない
+                    prev2_mask = masks[i-3].reshape(-1)
+                    prev2_pts = points[i-3].reshape(-1, 3)[prev2_mask].cpu().numpy()
+                    prev2_clr = images[i-3].reshape(-1, 3)[prev2_mask].cpu().numpy()
+                    prev1_mask = masks[i-2].reshape(-1)
+                    prev1_pts = points[i-2].reshape(-1, 3)[prev1_mask].cpu().numpy()
+                    prev1_clr = images[i-2].reshape(-1, 3)[prev1_mask].cpu().numpy()
+                    prev_mask = masks[i-1].reshape(-1)
+                    prev_pts = points[i-1].reshape(-1, 3)[prev_mask].cpu().numpy()
+                    prev_clr = images[i-1].reshape(-1, 3)[prev_mask].cpu().numpy()
+                    next_mask = masks[i+1].reshape(-1)
+                    next_pts = points[i+1].reshape(-1, 3)[next_mask].cpu().numpy()
+                    next_clr = images[i+1].reshape(-1, 3)[next_mask].cpu().numpy()
+                    next1_mask = masks[i+2].reshape(-1)
+                    next1_pts = points[i+2].reshape(-1, 3)[next1_mask].cpu().numpy()
+                    next1_clr = images[i+2].reshape(-1, 3)[next1_mask].cpu().numpy()
+                    next2_mask = masks[i+3].reshape(-1)
+                    next2_pts = points[i+3].reshape(-1, 3)[next2_mask].cpu().numpy()
+                    next2_clr = images[i+3].reshape(-1, 3)[next2_mask].cpu().numpy()
+                    
+                    
+
+                    #現在のフレームの点ごとにチェック
+                    for j, point in enumerate(pts):
+                        x, y, z = point
+                        pre2_x_range = (prev2_pts[:, 0] >= x - 0.1) & (prev2_pts[:, 0] <= x + 0.1)
+                        pre2_y_range = (prev2_pts[:, 1] >= y - 0.1) & (prev2_pts[:, 1] <= y + 0.1)
+                        pre1_x_range = (prev1_pts[:, 0] >= x - 0.1) & (prev1_pts[:, 0] <= x + 0.1)
+                        pre1_y_range = (prev1_pts[:, 1] >= y - 0.1) & (prev1_pts[:, 1] <= y + 0.1)
+                        pre_x_range = (prev_pts[:, 0] >= x - 0.1) & (prev_pts[:, 0] <= x + 0.1)
+                        pre_y_range = (prev_pts[:, 1] >= y - 0.1) & (prev_pts[:, 1] <= y + 0.1)
+                        next_x_range = (next_pts[:, 0] >= x - 0.1) & (next_pts[:, 0] <= x + 0.1)
+                        next_y_range = (next_pts[:, 1] >= y - 0.1) & (next_pts[:, 1] <= y + 0.1)
+                        next1_x_range = (next1_pts[:, 0] >= x - 0.1) & (next1_pts[:, 0] <= x + 0.1)
+                        next1_y_range = (next1_pts[:, 1] >= y - 0.1) & (next1_pts[:, 1] <= y + 0.1)
+                        next2_x_range = (next2_pts[:, 0] >= x - 0.1) & (next2_pts[:, 0] <= x + 0.1)
+                        next2_y_range = (next2_pts[:, 1] >= y - 0.1) & (next2_pts[:, 1] <= y + 0.1)
+
+                        # 条件に一致する点があるか確認
+                        pre2_in_range = pre2_x_range & pre2_y_range
+                        pre1_in_range = pre1_x_range & pre1_y_range
+                        pre_in_range = pre_x_range & pre_y_range
+                        next_in_range = next_x_range & next_y_range
+                        next1_in_range = next1_x_range & next1_y_range
+                        next2_in_range = next2_x_range & next2_y_range
+                        
+                        
+                        #if np.any(pre_in_range) and np.any(next_in_range):   # 範囲内の点が存在  ##修正必要
+                        pre2_close_pts = prev2_pts[pre2_in_range]
+                        pre2_close_clr = prev2_clr[pre2_in_range]  # 前フレームの色を取得
+                        pre1_close_pts = prev1_pts[pre1_in_range]
+                        pre1_close_clr = prev1_clr[pre1_in_range]  # 前フレームの色を取得
+                        pre_close_pts = prev_pts[pre_in_range]
+                        pre_close_clr = prev_clr[pre_in_range]  # 前フレームの色を取得
+                        next_close_pts = next_pts[next_in_range]
+                        next_close_clr = next_clr[next_in_range]  # 後フレームの色を取得
+                        next1_close_pts = next1_pts[next1_in_range]
+                        next1_close_clr = next1_clr[next1_in_range]  # 後フレームの色を取得
+                        next2_close_pts = next2_pts[next2_in_range]
+                        next2_close_clr = next2_clr[next2_in_range]  # 後フレームの色を取得
+
+                        # # 三次元距離を計算
+                        pre2_distances = calc_distance(point,pre2_close_pts)
+                        pre1_distances = calc_distance(point,pre1_close_pts)
+                        pre_distances = calc_distance(point,pre_close_pts)
+                        next_distances = calc_distance(point,next_close_pts)
+                        next1_distances = calc_distance(point,next1_close_pts)
+                        next2_distances = calc_distance(point,next2_close_pts)
+                        close_clr_list = []
+                        close_clr_list.extend([tuple(pre2_close_clr[k]) for k, dist in enumerate(pre2_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(pre1_close_clr[k]) for k, dist in enumerate(pre1_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(pre_close_clr[k]) for k, dist in enumerate(pre_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(next_close_clr[k]) for k, dist in enumerate(next_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(next1_close_clr[k]) for k, dist in enumerate(next1_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(next2_close_clr[k]) for k, dist in enumerate(next2_distances) if dist < 0.02])
+                        # 最も頻出する色を決定
+                        if len(close_clr_list) > 0:
+                            close_clr_list.append(tuple(clr[j]))
+                            most_common_color = Counter(close_clr_list).most_common(1)[0][0]
+                            clr[j] = most_common_color
+                        
+                        
+                        
+                        
+                        #######検出された点の可視化##########################################################    
+                    #     #if np.any(pre_in_range) and np.any(next_in_range):   # 範囲内の点が存在
+                    #     # pre_close_pts = prev_pts[pre_in_range]
+                    #     # pre_close_clr = prev_clr[pre_in_range]  # 前フレームの色を取得
+                    #     next_close_pts = next_pts[next_in_range]
+                    #     next_close_clr = next_clr[next_in_range]  # 後フレームの色を取得
+                        
+                    #     next_in_range_indices = np.where(next_in_range)[0]
+
+                    #     # # 三次元距離を計算
+                    #     # pre_distances = calc_distance(point,pre_close_pts)
+                    #     next_distances = calc_distance(point,next_close_pts)
+                    #     close_clr_list = []
+                    #     # close_clr_list = [pre_close_clr[k] for k, dist in enumerate(pre_distances) if dist < 0.1]
+                    #     close_clr_list = [k for k, dist in enumerate(next_distances) if dist < 0.02]
+                        
+                            
+                                
+                    #     if j == 100:
+                    #         if np.any(next_in_range):   # 範囲内の点が存在
+                    #             next_clr[:] = 1.0
+                                
+                    #             ######選択範囲の可視化######
+                    #             next_clr[next_in_range] = [0.5,1.0,0.5]  # 後フレームの色を取得
+                                
+                    #             ######選出された点の可視化######
+                    #             for k in close_clr_list:
+                    #                 next_clr[next_in_range_indices[k]] = [0.0,0.0,1.0]
+                                
+                    #             ######対象とする三次元点の可視化######
+                    #             if i==7:
+                    #                 clr[:] = 1.0
+                    #                 clr[j] = [1.0,0.0,0.0]
+                                
+                    #             #if droid_visualization.next_colors is not None and droid_visualization.count == i and i  == 8:
+                    #             if droid_visualization.next_colors is not None and droid_visualization.count == i:
+                    #                 if j < len(droid_visualization.next_colors):
+                    #                     clr = droid_visualization.next_colors
+                                        
+                    #             droid_visualization.next_colors = next_clr
+                    #             droid_visualization.count = i+1
+                                
+                    # if i != 8 and i != 7:
+                    #     clr[:] = 1.0
+                        #####################################################################
+                                        
+                            
+                                
+                                
+                     
+                     
+                     
+                # if i == len(dirty_index)-1:
+                #     prev_mask = masks[i-1].reshape(-1)
+                #     prev_pts = points[i-1].reshape(-1, 3)[prev_mask].cpu().numpy()
+                #     prev_clr = images[i-1].reshape(-1, 3)[prev_mask].cpu().numpy()
+                    
+                #     # 現在のフレームの点ごとにチェック
+                #     for j, point in enumerate(pts):
+                #         x, y, z = point
+                #         pre_x_range = (prev_pts[:, 0] >= x - 0.1) & (prev_pts[:, 0] <= x + 0.1)
+                #         pre_y_range = (prev_pts[:, 1] >= y - 0.1) & (prev_pts[:, 1] <= y + 0.1)
+
+                #         # 条件に一致する点があるか確認
+                #         pre_in_range = pre_x_range & pre_y_range
+                #         if np.any(pre_in_range):   # 範囲内の点が存在
+                #             pre_close_pts = prev_pts[pre_in_range]
+                #             pre_close_clr = prev_clr[pre_in_range]  # 前フレームの色を取得
+
+                #             # # 三次元距離を計算
+                #             pre_distances = calc_distance(point,pre_close_pts)
+                #             close_clr_list = []
+                #             close_clr_list = [pre_close_clr[k] for k, dist in enumerate(pre_distances) if dist < 0.1]
+                #             # 最も頻出する色を決定
+                #             if len(close_clr_list) > 0:
+                #                 # most_common_color = Counter(close_clr_list).most_common(1)[0][0]
+                #                 close_clr_list.append(clr[j])
+                #                 most_common_color = Counter(map(tuple, close_clr_list)).most_common(1)[0][0]
+                #                 clr[j] = most_common_colork, dist in enumerate(distances):
+                #             #     if dist < 0.1:
+                #             #         close_clr_list.append(pre_close_clr[k])
+                #             #close_clr_list = [np.where(dist < 0.1, pre_close_clr[k]) for k, dist in enumerate(distances)]
+                #             close_clr_list = [pre_close_clr[k] for k, dist in enumerate(pre_distances) if dist < 0.1]
+                #             close_clr_list = [next_close_clr[k] for k, dist in enumerate(next_distances) if dist < 0.1]
+                #             # 最も頻出する色を決定
+                #             if len(close_clr_list) > 0:
+                #                 # most_common_color = Counter(close_clr_list).most_common(1)[0][0]
+                #                 close_clr_list.append(clr[j])
+                #                 most_common_color = Counter(map(tuple, close_clr_list)).most_common(1)[0][0]
+                #                 clr[j] = most_common_color
+                     
+                     
+                     
+                # if i == len(dirty_index)-1:
+                #     prev_mask = masks[i-1].reshape(-1)
+                #     prev_pts = points[i-1].reshape(-1, 3)[prev_mask].cpu().numpy()
+                #     prev_clr = images[i-1].reshape(-1, 3)[prev_mask].cpu().numpy()
+                    
+                #     # 現在のフレームの点ごとにチェック
+                #     for j, point in enumerate(pts):
+                #         x, y, z = point
+                #         pre_x_range = (prev_pts[:, 0] >= x - 0.1) & (prev_pts[:, 0] <= x + 0.1)
+                #         pre_y_range = (prev_pts[:, 1] >= y - 0.1) & (prev_pts[:, 1] <= y + 0.1)
+
+                #         # 条件に一致する点があるか確認
+                #         pre_in_range = pre_x_range & pre_y_range
+                #         # if np.any(pre_in_range):   # 範囲内の点が存在
+                #         pre_close_pts = prev_pts[pre_in_range]
+                #         pre_close_clr = prev_clr[pre_in_range]  # 前フレームの色を取得
+
+                #         # # 三次元距離を計算
+                #         pre_distances = calc_distance(point,pre_close_pts)
+                #         close_clr_list = []
+                #         close_clr_list = [pre_close_clr[k] for k, dist in enumerate(pre_distances) if dist < 0.02]
+                #         # 最も頻出する色を決定
+                #         if len(close_clr_list) > 0:
+                #             # most_common_color = Counter(close_clr_list).most_common(1)[0][0]
+                #             close_clr_list.append(clr[j])
+                #             most_common_color = Counter(map(tuple, close_clr_list)).most_common(1)[0][0]
+                #             clr[j] = most_common_color
+                
+                
+                
+                
+                if i == len(dirty_index)-3 and len(dirty_index) > 10:
+                    prev2_mask = masks[i-3].reshape(-1)
+                    prev2_pts = points[i-3].reshape(-1, 3)[prev2_mask].cpu().numpy()
+                    prev2_clr = images[i-3].reshape(-1, 3)[prev2_mask].cpu().numpy()
+                    prev1_mask = masks[i-2].reshape(-1)
+                    prev1_pts = points[i-2].reshape(-1, 3)[prev1_mask].cpu().numpy()
+                    prev1_clr = images[i-2].reshape(-1, 3)[prev1_mask].cpu().numpy()
+                    prev_mask = masks[i-1].reshape(-1)
+                    prev_pts = points[i-1].reshape(-1, 3)[prev_mask].cpu().numpy()
+                    prev_clr = images[i-1].reshape(-1, 3)[prev_mask].cpu().numpy()
+                    next_mask = masks[i+1].reshape(-1)
+                    next_pts = points[i+1].reshape(-1, 3)[next_mask].cpu().numpy()
+                    next_clr = images[i+1].reshape(-1, 3)[next_mask].cpu().numpy()
+                    next1_mask = masks[i+2].reshape(-1)
+                    next1_pts = points[i+2].reshape(-1, 3)[next1_mask].cpu().numpy()
+                    next1_clr = images[i+2].reshape(-1, 3)[next1_mask].cpu().numpy()
+
+                    #現在のフレームの点ごとにチェック
+                    for j, point in enumerate(pts):
+                        x, y, z = point
+                        pre2_x_range = (prev2_pts[:, 0] >= x - 0.1) & (prev2_pts[:, 0] <= x + 0.1)
+                        pre2_y_range = (prev2_pts[:, 1] >= y - 0.1) & (prev2_pts[:, 1] <= y + 0.1)
+                        pre1_x_range = (prev1_pts[:, 0] >= x - 0.1) & (prev1_pts[:, 0] <= x + 0.1)
+                        pre1_y_range = (prev1_pts[:, 1] >= y - 0.1) & (prev1_pts[:, 1] <= y + 0.1)
+                        pre_x_range = (prev_pts[:, 0] >= x - 0.1) & (prev_pts[:, 0] <= x + 0.1)
+                        pre_y_range = (prev_pts[:, 1] >= y - 0.1) & (prev_pts[:, 1] <= y + 0.1)
+                        next_x_range = (next_pts[:, 0] >= x - 0.1) & (next_pts[:, 0] <= x + 0.1)
+                        next_y_range = (next_pts[:, 1] >= y - 0.1) & (next_pts[:, 1] <= y + 0.1)
+                        next1_x_range = (next1_pts[:, 0] >= x - 0.1) & (next1_pts[:, 0] <= x + 0.1)
+                        next1_y_range = (next1_pts[:, 1] >= y - 0.1) & (next1_pts[:, 1] <= y + 0.1)
+
+                        # 条件に一致する点があるか確認
+                        pre2_in_range = pre2_x_range & pre2_y_range
+                        pre1_in_range = pre1_x_range & pre1_y_range
+                        pre_in_range = pre_x_range & pre_y_range
+                        next_in_range = next_x_range & next_y_range
+                        next1_in_range = next1_x_range & next1_y_range
+                        #if np.any(pre_in_range) and np.any(next_in_range):   # 範囲内の点が存在  ##修正必要
+                        pre2_close_pts = prev2_pts[pre2_in_range]
+                        pre2_close_clr = prev2_clr[pre2_in_range]  # 前フレームの色を取得
+                        pre1_close_pts = prev1_pts[pre1_in_range]
+                        pre1_close_clr = prev1_clr[pre1_in_range]  # 前フレームの色を取得
+                        pre_close_pts = prev_pts[pre_in_range]
+                        pre_close_clr = prev_clr[pre_in_range]  # 前フレームの色を取得
+                        next_close_pts = next_pts[next_in_range]
+                        next_close_clr = next_clr[next_in_range]  # 後フレームの色を取得
+                        next1_close_pts = next1_pts[next1_in_range]
+                        next1_close_clr = next1_clr[next1_in_range]  # 後フレームの色を取得
+
+                        # # 三次元距離を計算
+                        pre2_distances = calc_distance(point,pre2_close_pts)
+                        pre1_distances = calc_distance(point,pre1_close_pts)
+                        pre_distances = calc_distance(point,pre_close_pts)
+                        next_distances = calc_distance(point,next_close_pts)
+                        next1_distances = calc_distance(point,next1_close_pts)
+                        close_clr_list = []
+                        close_clr_list.extend([tuple(pre2_close_clr[k]) for k, dist in enumerate(pre2_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(pre1_close_clr[k]) for k, dist in enumerate(pre1_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(pre_close_clr[k]) for k, dist in enumerate(pre_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(next_close_clr[k]) for k, dist in enumerate(next_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(next1_close_clr[k]) for k, dist in enumerate(next1_distances) if dist < 0.02])
+                        # 最も頻出する色を決定
+                        if len(close_clr_list) > 0:
+                            close_clr_list.append(tuple(clr[j]))
+                            most_common_color = Counter(close_clr_list).most_common(1)[0][0]
+                            clr[j] = most_common_color
+                            
+                
+                if i == len(dirty_index)-2 and len(dirty_index) > 10:
+                    prev2_mask = masks[i-3].reshape(-1)
+                    prev2_pts = points[i-3].reshape(-1, 3)[prev2_mask].cpu().numpy()
+                    prev2_clr = images[i-3].reshape(-1, 3)[prev2_mask].cpu().numpy()
+                    prev1_mask = masks[i-2].reshape(-1)
+                    prev1_pts = points[i-2].reshape(-1, 3)[prev1_mask].cpu().numpy()
+                    prev1_clr = images[i-2].reshape(-1, 3)[prev1_mask].cpu().numpy()
+                    prev_mask = masks[i-1].reshape(-1)
+                    prev_pts = points[i-1].reshape(-1, 3)[prev_mask].cpu().numpy()
+                    prev_clr = images[i-1].reshape(-1, 3)[prev_mask].cpu().numpy()
+                    next_mask = masks[i+1].reshape(-1)
+                    next_pts = points[i+1].reshape(-1, 3)[next_mask].cpu().numpy()
+                    next_clr = images[i+1].reshape(-1, 3)[next_mask].cpu().numpy()
+                   
+                    #現在のフレームの点ごとにチェック
+                    for j, point in enumerate(pts):
+                        x, y, z = point
+                        pre2_x_range = (prev2_pts[:, 0] >= x - 0.1) & (prev2_pts[:, 0] <= x + 0.1)
+                        pre2_y_range = (prev2_pts[:, 1] >= y - 0.1) & (prev2_pts[:, 1] <= y + 0.1)
+                        pre1_x_range = (prev1_pts[:, 0] >= x - 0.1) & (prev1_pts[:, 0] <= x + 0.1)
+                        pre1_y_range = (prev1_pts[:, 1] >= y - 0.1) & (prev1_pts[:, 1] <= y + 0.1)
+                        pre_x_range = (prev_pts[:, 0] >= x - 0.1) & (prev_pts[:, 0] <= x + 0.1)
+                        pre_y_range = (prev_pts[:, 1] >= y - 0.1) & (prev_pts[:, 1] <= y + 0.1)
+                        next_x_range = (next_pts[:, 0] >= x - 0.1) & (next_pts[:, 0] <= x + 0.1)
+                        next_y_range = (next_pts[:, 1] >= y - 0.1) & (next_pts[:, 1] <= y + 0.1)
+
+                        # 条件に一致する点があるか確認
+                        pre2_in_range = pre2_x_range & pre2_y_range
+                        pre1_in_range = pre1_x_range & pre1_y_range
+                        pre_in_range = pre_x_range & pre_y_range
+                        next_in_range = next_x_range & next_y_range
+                        #if np.any(pre_in_range) and np.any(next_in_range):   # 範囲内の点が存在  ##修正必要
+                        pre2_close_pts = prev2_pts[pre2_in_range]
+                        pre2_close_clr = prev2_clr[pre2_in_range]  # 前フレームの色を取得
+                        pre1_close_pts = prev1_pts[pre1_in_range]
+                        pre1_close_clr = prev1_clr[pre1_in_range]  # 前フレームの色を取得
+                        pre_close_pts = prev_pts[pre_in_range]
+                        pre_close_clr = prev_clr[pre_in_range]  # 前フレームの色を取得
+                        next_close_pts = next_pts[next_in_range]
+                        next_close_clr = next_clr[next_in_range]  # 後フレームの色を取得
+                        # # 三次元距離を計算
+                        pre2_distances = calc_distance(point,pre2_close_pts)
+                        pre1_distances = calc_distance(point,pre1_close_pts)
+                        pre_distances = calc_distance(point,pre_close_pts)
+                        next_distances = calc_distance(point,next_close_pts)
+                        close_clr_list = []
+                        close_clr_list.extend([tuple(pre2_close_clr[k]) for k, dist in enumerate(pre2_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(pre1_close_clr[k]) for k, dist in enumerate(pre1_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(pre_close_clr[k]) for k, dist in enumerate(pre_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(next_close_clr[k]) for k, dist in enumerate(next_distances) if dist < 0.02])
+                        # 最も頻出する色を決定
+                        if len(close_clr_list) > 0:
+                            close_clr_list.append(tuple(clr[j]))
+                            most_common_color = Counter(close_clr_list).most_common(1)[0][0]
+                            clr[j] = most_common_color
+                            
+                            
+                if i == len(dirty_index)-1 and len(dirty_index) > 10:
+                    prev2_mask = masks[i-3].reshape(-1)
+                    prev2_pts = points[i-3].reshape(-1, 3)[prev2_mask].cpu().numpy()
+                    prev2_clr = images[i-3].reshape(-1, 3)[prev2_mask].cpu().numpy()
+                    prev1_mask = masks[i-2].reshape(-1)
+                    prev1_pts = points[i-2].reshape(-1, 3)[prev1_mask].cpu().numpy()
+                    prev1_clr = images[i-2].reshape(-1, 3)[prev1_mask].cpu().numpy()
+                    prev_mask = masks[i-1].reshape(-1)
+                    prev_pts = points[i-1].reshape(-1, 3)[prev_mask].cpu().numpy()
+                    prev_clr = images[i-1].reshape(-1, 3)[prev_mask].cpu().numpy()
+                   
+                    #現在のフレームの点ごとにチェック
+                    for j, point in enumerate(pts):
+                        x, y, z = point
+                        pre2_x_range = (prev2_pts[:, 0] >= x - 0.1) & (prev2_pts[:, 0] <= x + 0.1)
+                        pre2_y_range = (prev2_pts[:, 1] >= y - 0.1) & (prev2_pts[:, 1] <= y + 0.1)
+                        pre1_x_range = (prev1_pts[:, 0] >= x - 0.1) & (prev1_pts[:, 0] <= x + 0.1)
+                        pre1_y_range = (prev1_pts[:, 1] >= y - 0.1) & (prev1_pts[:, 1] <= y + 0.1)
+                        pre_x_range = (prev_pts[:, 0] >= x - 0.1) & (prev_pts[:, 0] <= x + 0.1)
+                        pre_y_range = (prev_pts[:, 1] >= y - 0.1) & (prev_pts[:, 1] <= y + 0.1)
+                     
+                        # 条件に一致する点があるか確認
+                        pre2_in_range = pre2_x_range & pre2_y_range
+                        pre1_in_range = pre1_x_range & pre1_y_range
+                        pre_in_range = pre_x_range & pre_y_range
+                        #if np.any(pre_in_range) and np.any(next_in_range):   # 範囲内の点が存在  ##修正必要
+                        pre2_close_pts = prev2_pts[pre2_in_range]
+                        pre2_close_clr = prev2_clr[pre2_in_range]  # 前フレームの色を取得
+                        pre1_close_pts = prev1_pts[pre1_in_range]
+                        pre1_close_clr = prev1_clr[pre1_in_range]  # 前フレームの色を取得
+                        pre_close_pts = prev_pts[pre_in_range]
+                        pre_close_clr = prev_clr[pre_in_range]  # 前フレームの色を取得
+
+                        # # 三次元距離を計算
+                        pre2_distances = calc_distance(point,pre2_close_pts)
+                        pre1_distances = calc_distance(point,pre1_close_pts)
+                        pre_distances = calc_distance(point,pre_close_pts)
+                        close_clr_list = []
+                        close_clr_list.extend([tuple(pre2_close_clr[k]) for k, dist in enumerate(pre2_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(pre1_close_clr[k]) for k, dist in enumerate(pre1_distances) if dist < 0.02])
+                        close_clr_list.extend([tuple(pre_close_clr[k]) for k, dist in enumerate(pre_distances) if dist < 0.02])
+                        # 最も頻出する色を決定
+                        if len(close_clr_list) > 0:
+                            close_clr_list.append(tuple(clr[j]))
+                            most_common_color = Counter(close_clr_list).most_common(1)[0][0]
+                            clr[j] = most_common_color
+                
+                #########################################
+                ## 一個前のフレームの点群と比較 ###
+                
+                # if i > 0 and len(dirty_index)-1 > i:  # 最初のフレームは比較対象がない
+                #     prev_mask = masks[i-1].reshape(-1)
+                #     prev_pts = points[i-1].reshape(-1, 3)[prev_mask].cpu().numpy()
+                #     prev_clr = images[i-1].reshape(-1, 3)[prev_mask].cpu().numpy()
+                #     next_mask = masks[i+1].reshape(-1)
+                #     next_pts = points[i+1].reshape(-1, 3)[next_mask].cpu().numpy()
+                #     next_clr = images[i+1].reshape(-1, 3)[next_mask].cpu().numpy()
+                    
+
+                #     # 現在のフレームの点ごとにチェック
+                #     for j, point in enumerate(pts):
+                #         x, y, z = point
+                #         pre_x_range = (prev_pts[:, 0] >= x - 0.1) & (prev_pts[:, 0] <= x + 0.1)
+                #         pre_y_range = (prev_pts[:, 1] >= y - 0.1) & (prev_pts[:, 1] <= y + 0.1)
+                #         next_x_range = (next_pts[:, 0] >= x - 0.1) & (next_pts[:, 0] <= x + 0.1)
+                #         next_y_range = (next_pts[:, 1] >= y - 0.1) & (next_pts[:, 1] <= y + 0.1)
+
+                #         # 条件に一致する点があるか確認
+                #         pre_in_range = pre_x_range & pre_y_range
+                #         next_in_range = next_x_range & next_y_range
+                #         # if np.any(pre_in_range) and np.any(next_in_range):   # 範囲内の点が存在
+                #         #     pre_close_pts = prev_pts[pre_in_range]
+                #         #     pre_close_clr = prev_clr[pre_in_range]  # 前フレームの色を取得
+                #         #     next_close_pts = next_pts[next_in_range]
+                #         #     next_close_clr = next_clr[next_in_range]  # 後フレームの色を取得
+
+                #         #     # # 三次元距離を計算
+                #         #     pre_distances = calc_distance(point,pre_close_pts)
+                #         #     next_distances = calc_distance(point,next_close_pts)
+                #         #     close_clr_list = []
+                #         #     close_clr_list1 = []
+                #         #     # for k, dist in enumerate(distances):
+                #         #     #     if dist < 0.1:
+                #         #     #         close_clr_list.append(pre_close_clr[k])
+                #         #     #close_clr_list = [np.where(dist < 0.1, pre_close_clr[k]) for k, dist in enumerate(distances)]
+                #         #     close_clr_list = [pre_close_clr[k] for k, dist in enumerate(pre_distances) if dist < 0.05]
+                #         #     close_clr_list1 = [next_close_clr[k] for k, dist in enumerate(next_distances) if dist < 0.05] 
+                #         #     close_clr_list.append([next_close_clr[k] for k, dist in enumerate(next_distances) if dist < 0.05])
+                #         #     # 最も頻出する色を決定
+                #         #     if len(close_clr_list) > 0:
+                #         #         # most_common_color = Counter(close_clr_list).most_common(1)[0][0]
+                #         #         close_clr_list.append(clr[j])
+                #         #         most_common_color = Counter(map(tuple, close_clr_list)).most_common(1)[0][0]
+                #         #         clr[j] = most_common_color
+                        
+                #     if np.any(pre_in_range) and np.any(next_in_range):   # 範囲内の点が存在
+                #         pre_close_pts = prev_pts[pre_in_range]
+                #         pre_close_clr = prev_clr[pre_in_range]  # 前フレームの色を取得
+                #         next_close_pts = next_pts[next_in_range]
+                #         next_close_clr = next_clr[next_in_range]  # 後フレームの色を取得
+
+                #         # 三次元距離を計算
+                #         pre_distances = calc_distance(point, pre_close_pts)
+                #         next_distances = calc_distance(point, next_close_pts)
+                #         close_clr_list = []
+
+                #         close_clr_list.extend([tuple(pre_close_clr[k]) for k, dist in enumerate(pre_distances) if dist < 0.05])
+                #         close_clr_list.extend([tuple(next_close_clr[k]) for k, dist in enumerate(next_distances) if dist < 0.05])
+
+                #         # 最も頻出する色を決定
+                #         if len(close_clr_list) > 0:
+                #             close_clr_list.append(tuple(clr[j]))
+                #             most_common_color = Counter(close_clr_list).most_common(1)[0][0]
+                #             clr[j] = most_common_color
+                                
+                                    
+                #########################################
+                
                 
                 #########三次元点群の距離を計算して、近い点を赤色にする処理#########
                 #clr[:] = 0.5  # 全ての要素を 0.5 に設定
@@ -206,20 +882,35 @@ def droid_visualization(video, device="cuda:0"):
                 #     for clr_value in clr:
                 #         f.write(f"{clr_value[0]:.6f}, {clr_value[1]:.6f}, {clr_value[2]:.6f}\n")
                 #     f.write("\n")
-                    
-                # start = time.perf_counter()
-                # for x, point in enumerate(pts):
-                #     for pre_point in points[i-1].reshape(-1, 3)[mask].cpu().numpy():
-                #         # if np.linalg.norm(point - pre_point) < 0.001:
-                #         if calc_distance(point,pre_point) < 0.01:
-                #             clr[x] = [1.0, 0.0, 0.0]
-                            
-                #             # print(f"near!!!!!!!point: {point}")
-                #             # print(f"")
-                #     end = time.perf_counter()
-                    
-                # print('{:.3f}'.format((end-start)))
                 
+                
+                # if i > 2:
+                #     start = time.perf_counter()
+                #     # for x, point in enumerate(pts):
+                #         # for y, pre_point in enumerate(points[i-1].reshape(-1, 3)[mask].cpu().numpy()):
+                #             # if np.linalg.norm(point - pre_point) < 0.001:
+                #         # if calc_distance(point,points[i-1].reshape(-1, 3)[mask].cpu().numpy()) < 0.01:
+                #     list1 = [x for x, point in enumerate(pts) for y, pre_point in enumerate(points[i-1].reshape(-1, 3)[mask].cpu().numpy()) if calc_distance1(point,pre_point) < 0.1]
+                #     if np.any(list1):
+                #         for x in list1:
+                #             clr[x] = [0.5,1.0,0.5]
+                #                 # pre_data = np.array([[i-1,pre_point,clr[y]]],dtype=object)
+                #                 # now_data = np.array([[i,point,clr[x]]],dtype=object)
+                #                 # near_point = np.vstack((pre_data,now_data),dtype=object)
+                #                 # if all(clr[x]==clr[y])==True:
+                #                 #     print(f"same color")
+                #                 #print(f"clr[x]: {clr[x]}")
+                #                 #print(f"near!!!!!!!point: {near_point}")
+                #                 # print(f"near!!!!!!!point: {point}")
+                #                 # print(f"")
+                #         with open('near_point_sum', "a") as f:
+                #             f.write(f"{len(list1)}\n")
+                #             print(f"list1: {len(list1)}")
+                #     end = time.perf_counter()
+                #     print('{:.4f}'.format((end-start)))
+                        
+                #     print('{:.3f}'.form                print(f"images[i].shape: {images[i].shape}")
+                            
                 
                 ## add point actor ###
                 point_actor = create_point_actor(pts, clr)
