@@ -400,7 +400,7 @@ class FactorGraph:
         ii, jj = torch.meshgrid(ix, jx)
         ii = ii.reshape(-1)
         jj = jj.reshape(-1)
-        self.save_edge_pairs_to_file(ii, jj, filename="edges_all.txt")
+        #self.save_edge_pairs_to_file(ii, jj, filename="edges_all.txt")
         # self.display_frame_at_t(self.video, t)
         
         
@@ -411,7 +411,7 @@ class FactorGraph:
             for i, j, dist in zip(ii.cpu().numpy(), jj.cpu().numpy(), D):
                 f.write(f"Frame Pair ({i}, {j}): Distance = {dist}\n")
 
-        print(f"Distances saved to {filename}")
+        #print(f"Distances saved to {filename}")
         
         d = self.video.distance(ii, jj, beta=beta) # フレームペア間の距離を計算
         
@@ -477,7 +477,7 @@ class FactorGraph:
         ii, jj = torch.as_tensor(es, device=self.device).unbind(dim=-1)
 
         self.add_factors(ii, jj, remove)
-        self.save_edge_pairs_to_file(self.ii, self.jj, filename="edges_thresh50.txt")
+        #self.save_edge_pairs_to_file(self.ii, self.jj, filename="edges_thresh50.txt")
         
         
         return len(es)
